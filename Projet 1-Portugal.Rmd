@@ -1,0 +1,384 @@
+---
+title: "Annexe"
+output: html_document
+date: "2023-04-25"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Chargement des library.
+
+```{r}
+library(tseries)
+library(urca)
+library(forecast)
+library(tidyverse)
+library(TSstudio)
+library(lmtest)
+library(TSA)
+library(CADFtest)
+library(caschrono)
+library(FinTS)
+library(doSNOW)
+library(parallel)
+
+```
+
+Chargement des données.
+
+```{r}
+Portugal = Portugal <- read_csv("C:/Users/moude/Desktop/Portugal.csv")
+PRT_inv = Portugal[,"Taux"]
+```
+
+La série temporelle.
+
+```{r}
+PRT_inv = ts(PRT_inv,freq=1, start = 1970)
+
+```
+
+
+### Chronogramme
+
+```{r}
+plot.ts(PRT_inv,xlab="Année", ylab="Taux d’investissement", main="Taux d’investissement de Portugal",type='o',col=5)
+
+```
+
+On observe une tendance décroissante sur l’ensemble des données. Par contre, on peut dire qu’il n’y a pas de saisonnalité, parce que les données sont annuelles, mais on ne peut pas dire si la série est stationnaire ou non, il faut faire des tests pour vérifier ça. Cependant, il y a une baisse importante après 2010, ce qui peut être expliqué par la crise économique connue par le pays qui a duré plusieurs années. 
+
+## Tests de racine unitaire
+
+### Test de Dickey Fuller 
+
+On commence par l specification "trend"
+
+```{r}
+summary(ur.df(PRT_inv,type="trend",lag=0))
+
+```
+Le beta_1 (tt) est significatif et t calculé pour (ρ − 1) est superieure à la valeur critique 
+(-2.5478 > -3.45), alors on accepte H0 alors on a un processus DS.
+
+
+#### L'autocorrélation des résidus
+
+Ces résultats ne sont valables que si les résidus ne sont pas autocorrélés.
+
+```{r}
+plot(ur.df(PRT_inv,type="trend",lag=0))
+
+```
+
+On constate qu'il y a de l'autocorrélation entre les résidus, donc on passe à L'ADF. Mais, il faut d'abord trouver le nombre de lag à utiliser pour le test d'ADF. On va utiliser le critère MAIC pour les determiner.
+
+
+### Test de Dickey Fuller Augmenté
+
+Le nombre maximum des lags.
+
+```{r}
+Tinv = length(PRT_inv)
+pmax<-as.integer(12*(Tinv/100)^(0.25))
+print(pmax)
+```
+
+MAIC
+```{r}
+
+summary(CADFtest(PRT_inv ,criterion="MAIC", type="trend", max.lag.y=pmax))
+
+```
+Max lag of the diff. dependent variable est égale à 3, donc on va utiliser un nombre de lags égale à 3 pour le test de l'ADF.
+
+
+Test de Dickey Fuller Augmenté avec p = 3.
+
+```{r}
+summary(ur.df(PRT_inv,type="trend",lag=3))
+
+```
+
+On accepte H0 : ρ−1 = 0 car la statistique t (-2.8773) est plus grande que -1.95, On a donc un processus DS avec présence de racine unitaire.
+
+### Test de Zivot et Andrews
+
+Le test de Zivot et Andrews est souvent utilisé pour tester si une série temporelle a une rupture structurelle dans le contexte de la modélisation des données macroéconomiques, ce qui n’est pas pris par les tests de DF et d’ADF. 
+
+```{r}
+summary(ur.za(PRT_inv, model="both", lag=3))
+
+```
+δ2 n’est pas significatif 0.05494 > 0.05, alors on emploie la spécification ”intercept”.
+
+```{r}
+summary(ur.za(PRT_inv, model="intercept", lag=3))
+plot(ur.za(PRT_inv, model="intercept", lag=3))
+
+```
+
+Pour la spécification” both”, on a trouvé que δ2 n’est pas significatif 0.05494 > 0.05, alors on a employé la spécification ”intercept”. On trouve que δ1 a une p-value de 0.017516 < 0.05, donc la spécification "intercept" est correcte. La statistique calculée -3.9225 > la valeur critique à 5% =-4.8, donc on accepte H0. 
+On a DS sans changement structurel.
+
+
+### Test de Lee et Strazicich
+
+On va utiliser le test de Lee et Strazicich parce qu’il a la possibilité de deux dates de rupture, ce qui n’est pas le cas pour le test de Zivot et Andrews. 
+
+Comme on avait seulement δ1 significatif dans ZA, alors on choisit la spécification "crash".
+
+```{r}
+source("C:\\Users\\moude\\Desktop\\M1\\S2\\Econométrie des séries temporelles\\LeeStrazicichUnitRoot-master\\LeeStrazicichUnitRoot-master\\LeeStrazicichUnitRootTestParallelization.R")
+source("C:\\Users\\moude\\Desktop\\M1\\S2\\Econométrie des séries temporelles\\LeeStrazicichUnitRoot-master\\LeeStrazicichUnitRoot-master\\LeeStrazicichUnitRootTest.R")
+
+```
+
+Le test avec un break.
+
+```{r}
+myBreaks <- 1
+myModel <- "crash"
+myLags <- 3
+myLS_test <- ur.ls(y= PRT_inv , model = myModel, breaks = myBreaks, lags = myLags, method = "GTOS",pn = 0.1, print.results = "print" )
+```
+Comme La valeur de la t statistique calculée est -2.850924 > -3.566, on accepte H0 donc le PGD est DS sans changement structurel. 
+
+Le test avec deux breaks.
+
+```{r}
+myBreaks <- 2
+myModel <- "crash"
+myLags <- 3
+myLS_test <- ur.ls(y= PRT_inv , model = myModel, breaks = myBreaks, lags = myLags, method = "GTOS",pn = 0.1, print.results = "print" )
+```
+La valeur de la t statistique calculée est -3.077443 > -5.59, on accepte H0 donc le PGD est DS sans changement structurel. 
+
+
+### Bootstrap Lee et Strazicich
+
+Vue qu’on a un petit échantillon de 52 observations, on va utiliser ls.bootstrap.
+
+Bootstrap un break.
+
+```{r}
+cl <- makeCluster(max(1, detectCores() - 1))
+registerDoSNOW(cl)
+myBreaks <- 1
+myModel <- "crash"
+myParallel_LS <- ur.ls.bootstrap(y = PRT_inv , model = myModel, breaks = myBreaks, lags = myLags, method = "Fixed",pn = 0.1, critval = "bootstrap", print.results = "print")
+```
+λ est estimé à 0.3 et Tb = 15 donc 1984 est la date de rupture. Comme La valeur de la t statistique calculée est -1.928239 > -3.566, on accepte H0 donc le PGD est DS sans changement structurel.
+
+
+Bootstrap deux break. 
+
+```{r}
+cl <- makeCluster(max(1, detectCores() - 1))
+registerDoSNOW(cl)
+myBreaks <- 2
+myModel <- "crash"
+myParallel_LS <- ur.ls.bootstrap(y = PRT_inv , model = myModel, breaks = myBreaks, lags = myLags, method = "Fixed",pn = 0.1, critval = "bootstrap", print.results = "print")
+```
+
+La valeur de la t statistique calculée est -2.20179 > -5.59, on accepte H0 donc le PGD est DS sans changement structurel.
+
+### Differentiation
+
+On a un processus DS qui s’écrit comme :
+        Xt = δ + Xt−1 + ut
+Avec ut un BB et δ une constante appelée la dérive.
+
+
+```{r}
+D_PRT_inv = diff(PRT_inv)
+moy = mean(D_PRT_inv)
+plot.ts(D_PRT_inv,xlab="Année", ylab="Taux d’investissement différencié", main="Taux d’investissement de Portugal différencié",type='l',col=5)
+abline(h = moy,col = 3)
+```
+
+
+La série différenciée presente des proprietes de stationnarité, comme la variation autour de la moyenne, dans ce cas 0, et une variance plus ou moins constante. Donc, on peut passer à la modélisation.
+
+
+###	Modélisation 
+
+Maintenant qu’on a une série stationnaire on peut passer à la modélisation. En premier on affiche les graphes d’ACF et de PACF pour voir s’il y a de l’autocorrélation et un test de Ljung-box pour confirmer qu’il y a de l’autocorrélation et puis on utilise la fonction eacf() pour obtenir les valeurs de p et q du modèle et on va simuler plusieurs modèles afin de choisir le meilleur.
+
+Plot ACF
+
+```{r}
+
+acf(D_PRT_inv, lag.max = 30)
+
+```
+
+On peut voir qu’il y a de l’autocorrélation jusqu’à l’ordre 13. Les lags significatifs sont 1, 4, 12 et 13. On constate aussi que les coefficients de corrélation se dégradent progressivement, on peut dire qu'il s'agit probablement d'un processus AR.
+
+
+
+Plot PACF
+
+```{r}
+
+pacf(D_PRT_inv, lag.max = 30)
+
+```
+
+Pour la PACF il y a de l’autocorrélation jusqu’à l’ordre 2. Il y a que deux lags significatifs 1 et 2.
+
+
+On fait un test de Ljung-box pour confirmer l’existence d’autocorrélation.
+
+Test d'autocorrelation
+
+```{r}
+
+Box.test(D_PRT_inv, type = "Ljung-Box", lag = 13)
+
+```
+La p-value est inférieure à 0.05, on rejette H0, ce qui confirme qui st qu’il y a de l’autocorrélation.
+
+
+
+EACF
+
+```{r}
+
+eacf(D_PRT_inv)
+
+```
+On obtient les modeles suivants : ARMA (0,13), ARMA (1,4), ARMA (2,	4), ARMA (7,8).
+
+
+ARMA (0,13)
+
+```{r}
+reg1 = Arima(D_PRT_inv, order = c(0,0,13))
+coeftest(reg1)
+# On enleve les coefficient non significatifs
+reg1_x = Arima(D_PRT_inv, order = c(0,0,13),fixed=c(NA, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+coeftest(reg1_x)
+```
+On arrive au modèle suivant après qu'on enlève tous les coefficients non significatifs :
+Yt = θ1ϵt−1 + ϵt
+
+
+ARMA (1,4)
+
+```{r}
+reg2 = Arima(D_PRT_inv, order = c(1,0,4))
+coeftest(reg2)
+# On enleve les coefficient non significatifs
+reg2_x = Arima(D_PRT_inv, order = c(1,0,4),fixed=c(NA, 0, 0, NA, NA, NA))
+coeftest(reg2_x)
+
+```
+On arrive au modèle suivant après qu'on enlève tous les coefficients non significatifs :
+Yt = c + φ1Xt−1 + θ3ϵt−3 + θ4ϵt−4 + ϵt
+
+
+ARMA (2,4)
+
+```{r}
+reg3 = Arima(D_PRT_inv, order = c(2,0,4))
+coeftest(reg3)
+# On enleve les coefficient non significatifs
+reg3_x = Arima(D_PRT_inv, order = c(2,0,4),fixed=c(NA, 0, 0, 0, NA, NA, NA))
+coeftest(reg3_x)
+```
+On arrive au modèle suivant après qu'on enlève tous les coefficients non significatifs :
+Yt = c + φ1Xt−1 + θ3ϵt−3 + θ4ϵt−4 + ϵt
+
+
+ARMA (7,8)
+
+```{r}
+reg4 = Arima(D_PRT_inv, order = c(7,0,8))
+coeftest(reg4)
+# On enleve les coefficient non significatifs
+reg4_x = Arima(D_PRT_inv, order = c(7,0,8),fixed=c(NA, 0, 0, 0, 0, 0, 0, 0, NA, 0, 0, 0, 0, 0, 0), include.mean= FALSE)
+coeftest(reg4_x)
+```
+On arrive au modèle suivant après qu'on enlève tous les coefficients non significatifs :
+Yt = φ1Xt−1 + θ2ϵt−2 + ϵt
+
+On peut voir aussi le modèle proposé par R.
+
+```{r}
+reg_auto = auto.arima(D_PRT_inv)
+coeftest(reg_auto)
+```
+
+R propose un modèle ARIMA(0,0,1).
+
+
+Le BIC de chaque modèle. 
+
+```{r}
+BIC(reg1_x)
+BIC(reg2_x)
+BIC(reg3_x)
+BIC(reg4_x)
+BIC(reg_auto)
+```
+On choisit celui avec le plus petit BIC, dans ce cas, le modèle 1 ARIMA(0,0,1) 
+
+### Tests d’autocorrélation sur les résidus
+
+T test
+```{r}
+t.test(reg1_x$residuals)
+```
+
+La p-value (0.7863) est supérieure à 5%, on accepte H0, donc l’espérance des aléas est nulle.
+
+Archtest
+```{r}
+ArchTest(reg1_x$residuals, lags = 13)
+```
+La p-value (0.9117) est supérieure à 5%, on accepte H0, donc il n’y a pas d’effet d’Arch.
+
+Ljung-Box test 
+```{r}
+Box.test(reg1_x$residuals, type="Ljung-Box", lag=13)
+```
+
+La p-value (0.1936) est supérieure à 5%, on accepte H0, donc il n’y a pas d'autocorrélation.
+
+
+### Prévision
+
+Sur la série différencié.
+
+```{r}
+reg_d = Arima(D_PRT_inv, order = c(0,0,1), include.mean= FALSE)
+coeftest(reg_d)
+
+prev <- forecast(reg_d, h = 3, level = 0.95)
+prev
+plot(prev)
+
+```
+
+Sur la série originale.
+
+```{r}
+reg_n = Arima(PRT_inv, order = c(0,1,1), include.mean= FALSE)
+coeftest(reg_n)
+
+prev <- forecast(reg_n, h = 3, level = 0.95)
+prev
+plot(prev)
+
+```
+
+
+
+
+
+
+
+
